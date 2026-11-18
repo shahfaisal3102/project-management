@@ -1,0 +1,236 @@
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum WorkspaceRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+enum ProjectRole {
+  MANAGER
+  MEMBER
+}
+
+enum ProjectStatus {
+  PLANNING
+  ACTIVE
+  ON_HOLD
+  COMPLETED
+  ARCHIVED
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  IN_REVIEW
+  DONE
+  BLOCKED
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  name         String
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  refreshTokens RefreshToken[]
+
+  // Workspace relationships
+  workspaceMemberships WorkspaceMember[]
+  createdWorkspaces    Workspace[]
+
+  // Project relationships
+  projectMemberships ProjectMember[]
+  createdProjects    Project[]
+
+  // Task relationships
+  assignedTasks Task[] @relation("TaskAssignee")
+  createdTasks  Task[] @relation("TaskCreator")
+
+  // Comments and activities
+  taskComments TaskComment[]
+  activityLogs ActivityLog[]
+
+  
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  tokenHash String    @unique @map("token_hash")
+
+  userId    String    @db.Uuid
+  expiresAt DateTime  @map("expires_at")
+  revokedAt DateTime? @map("revoked_at")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("refresh_tokens")
+}
+
+model Workspace {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String
+  slug        String   @unique
+
+  createdById String   @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  createdBy   User              @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  members     WorkspaceMember[]
+  projects    Project[]
+  activityLogs ActivityLog[]
+
+  @@index([createdById])
+  @@map("workspaces")
+}
+
+model WorkspaceMember {
+  workspaceId String        @db.Uuid
+  userId      String        @db.Uuid
+  role        WorkspaceRole @default(MEMBER)
+
+  joinedAt    DateTime      @default(now()) @map("joined_at")
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([workspaceId, userId])
+  @@index([userId])
+  @@map("workspace_members")
+}
+
+model Project {
+  id          String        @id @default(uuid()) @db.Uuid
+  name        String
+  key         String
+  description String?       @db.Text
+  status      ProjectStatus @default(PLANNING)
+
+  workspaceId String        @db.Uuid
+  createdById String        @db.Uuid
+
+  startDate   DateTime?     @map("start_date")
+  dueDate     DateTime?     @map("due_date")
+
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+
+  workspace   Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy   User          @relation(fields: [createdById], references: [id], onDelete: Restrict)
+
+  members     ProjectMember[]
+  tasks       Task[]
+
+  @@unique([workspaceId, key])
+  @@index([workspaceId])
+  @@index([createdById])
+  @@map("projects")
+}
+
+model ProjectMember {
+  projectId String      @db.Uuid
+  userId    String      @db.Uuid
+  role      ProjectRole @default(MEMBER)
+
+  joinedAt  DateTime    @default(now()) @map("joined_at")
+
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([projectId, userId])
+  @@index([userId])
+  @@map("project_members")
+}
+
+model Task {
+  id          String       @id @default(uuid()) @db.Uuid
+  title       String
+  description String?      @db.Text
+
+  status      TaskStatus   @default(TODO)
+  priority    TaskPriority @default(MEDIUM)
+
+  projectId   String       @db.Uuid
+  assigneeId  String?      @db.Uuid
+  createdById String       @db.Uuid
+
+  dueDate     DateTime?    @map("due_date")
+
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+
+  project     Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  assignee    User?       @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  createdBy   User        @relation("TaskCreator", fields: [createdById], references: [id], onDelete: Restrict)
+
+  comments    TaskComment[]
+
+  @@index([projectId])
+  @@index([assigneeId])
+  @@index([status])
+  @@map("tasks")
+}
+
+model TaskComment {
+  id        String   @id @default(uuid()) @db.Uuid
+  content   String   @db.Text
+
+  taskId    String   @db.Uuid
+  authorId  String   @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  task      Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  author    User @relation(fields: [authorId], references: [id], onDelete: Restrict)
+
+  @@index([taskId])
+  @@index([authorId])
+  @@map("task_comments")
+}
+
+model ActivityLog {
+  id          String   @id @default(uuid()) @db.Uuid
+  action      String
+
+  workspaceId String   @db.Uuid
+  actorId     String?  @db.Uuid
+
+  entityType  String   @map("entity_type")
+  entityId    String   @db.Uuid @map("entity_id")
+
+  metadata    Json?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  actor       User?     @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, createdAt])
+  @@index([entityType, entityId])
+  @@map("activity_logs")
+}
